@@ -1,0 +1,97 @@
+version: '3.3'
+networks:
+    processmaker:
+volumes:
+    docker-data:
+    redis-data:
+services:
+    mysql:
+        image: mysql:8
+        platform: linux/amd64
+        ports:
+            - '3306:3306'
+        security_opt:
+            - seccomp:unconfined
+        environment:
+            MYSQL_ROOT_PASSWORD: P4ssW0rd
+            MYSQL_DATABASE: pm4
+            MYSQL_USER: pm4_user
+            MYSQL_PASSWORD: pm4_password
+        networks:
+            - processmaker
+        volumes:
+            - ./mysql-data:/var/lib/mysql
+        restart: always
+        healthcheck:
+            test: [ 'CMD', 'mysqladmin', 'ping', '-u', 'root', '-p${MYSQL_ROOT_PASSWORD}' ]
+            interval: 30s
+            timeout: 10s
+            retries: 5
+    phpmyadmin:
+        depends_on:
+            - mysql
+        image: phpmyadmin/phpmyadmin
+        environment:
+            PMA_HOST: "mysql"
+            PMA_ARBITRARY: 1
+        ports:
+            - '8080:80'
+        networks:
+            - processmaker
+    redis:
+        image: redis:6
+        command: redis-server --save 60 1 --loglevel warning
+        ports:
+            - '6379:6379'
+        networks:
+            - processmaker
+        volumes:
+            - redis-data:/data
+        restart: always
+        healthcheck:
+            test: [ 'CMD', 'redis-cli', 'ping' ]
+            interval: 30s
+            timeout: 10s
+            retries: 5
+    docker:
+        image: docker:20-dind
+        privileged: true
+        ports:
+            - '2375:2375'
+        networks:
+            - processmaker
+        volumes:
+            - docker-data:/var/lib/docker
+            - ./scripts:/opt/scripts
+        environment:
+            DOCKER_DRIVER: "overlay2"
+            DOCKER_TLS_CERTDIR: ""
+        restart: always
+        healthcheck:
+            test: [ 'CMD', 'docker', 'info' ]
+            interval: 30s
+            timeout: 10s
+            retries: 5
+    processmaker:
+        image: processmaker/pm4-dev:4.3v1
+        ports:
+            - '80:80'
+            - '6001:6001'
+        depends_on:
+            mysql:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
+            docker:
+                condition: service_healthy
+        networks:
+            - processmaker
+        volumes:
+            - ./processmaker:/opt/processmaker
+            - ./env:/opt/.env
+            - ./scripts:/opt/scripts
+        environment:
+            PM_branch: ${PROCESSMAKER_CORE_VERSION_INSTAll}
+            WAIT_FOR_DEPENDENTS: 1
+            DOCKER_HOST: 'tcp://docker:2375'
+            NO_PROXY: "127.0.0.1,localhost,docker:2375"

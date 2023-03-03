@@ -1,0 +1,1 @@
+To install ProcessMaker execute the install.sh file and specify the version you wish to install.
